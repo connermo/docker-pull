@@ -284,7 +284,7 @@ function App() {
                   </div>
                   <div className="bg-white shadow overflow-hidden sm:rounded-md">
                     {downloadedFiles.length > 0 ? (
-                      <div className="space-y-3">
+                      <div className="space-y-3 min-h-[200px]">
                         {downloadedFiles
                           .filter(file => 
                             file.name.toLowerCase().includes(searchQuery.toLowerCase())
