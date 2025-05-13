@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-// 使用环境变量或默认值
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+// 使用环境变量或默认值，单端口模式下使用相对路径
+const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 // 从环境变量获取密码
 const AUTH_PASSWORD = process.env.REACT_APP_AUTH_PASSWORD || 'admin123';
 

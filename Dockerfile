@@ -3,7 +3,7 @@ FROM node:18-alpine as frontend-builder
 
 WORKDIR /app
 
-# 设置前端环境变量
+# 设置前端环境变量（使用相对路径，适配单端口模式）
 ENV REACT_APP_API_URL=/api
 ENV REACT_APP_AUTH_PASSWORD=admin123
 

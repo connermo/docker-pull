@@ -122,11 +122,11 @@
 
 ### 前端环境变量 (.env)
 ```
-# API 接口地址
-REACT_APP_API_URL=http://localhost:8000/api
+# API 接口地址（单端口模式下使用相对路径）
+REACT_APP_API_URL=/api
 # 静态资源路径
 REACT_APP_STATIC_URL=/static
-# 前端开发服务器端口
+# 前端开发服务器端口（仅开发模式使用）
 PORT=3000
 # 前端访问密码
 REACT_APP_AUTH_PASSWORD=admin123
@@ -143,12 +143,30 @@ CORS_ORIGINS=http://localhost:3000
 # 下载文件存储目录，如果不指定，则使用默认路径 ./downloads
 DOWNLOADS_DIR=./downloads
 # Docker 镜像仓库镜像地址 (可选)
-DOCKER_REGISTRY_MIRROR=https://mirror.example.com
+DOCKER_REGISTRY_MIRROR=https://registry.docker-cn.com
 # Docker HTTP 代理设置 (可选)
 DOCKER_HTTP_PROXY=http://proxy.example.com:8080
 # Docker HTTPS 代理设置 (可选)
 DOCKER_HTTPS_PROXY=http://proxy.example.com:8080
 ```
+
+### 单端口模式
+
+该应用使用单端口模式，即前端和后端都通过同一个端口提供服务：
+
+1. **工作原理**：
+   - FastAPI 提供 API 服务 (`/api` 路径)
+   - FastAPI 同时提供静态文件服务 (`/static` 和根路径)
+   - 前端使用相对路径调用 API，无需指定主机和端口
+
+2. **优势**：
+   - 简化部署，只需暴露一个端口
+   - 避免跨域问题
+   - 更容易配置反向代理
+
+3. **开发模式**：
+   - 开发时前端和后端分别运行在不同端口
+   - 构建后，前端静态文件会被复制到后端静态目录，通过后端服务器提供
 
 ### Docker 网络配置
 

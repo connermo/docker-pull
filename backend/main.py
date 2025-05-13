@@ -55,6 +55,21 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 async def root():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
+# 确保其他HTML路由也能正确返回前端页面（支持前端路由）
+@app.get("/{catch_all:path}")
+async def catch_all(catch_all: str):
+    # 如果是API路由，则跳过此处理器
+    if catch_all.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API路径不存在")
+    
+    # 检查是否存在对应的静态文件
+    file_path = os.path.join(STATIC_DIR, catch_all)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        return FileResponse(file_path)
+    
+    # 否则返回index.html（让前端路由处理）
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
 logger.info(f"下载目录已创建: {DOWNLOADS_DIR}")
 
 class ImageRequest(BaseModel):
