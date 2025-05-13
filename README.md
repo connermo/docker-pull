@@ -41,47 +41,22 @@
    cd docker-pull
    ```
 
-2. 安装前端依赖
+2. 使用自动部署脚本 (推荐)
    ```bash
-   npm install
-   ```
-
-3. 安装后端依赖
-   ```bash
-   cd backend
-   pip install -r requirements.txt
-   ```
-
-4. 创建环境变量配置文件
-   ```bash
-   # 在项目根目录创建前端配置
-   cp env.example .env
-   
-   # 在后端目录创建后端配置
-   cd backend
-   cp ../env.example .env
+   chmod +x setup.sh
+   ./setup.sh
    ```
    
-   根据需要修改配置文件中的参数。
+   这个脚本会自动完成前端构建和文件复制工作。
 
-5. 构建前端
-   ```bash
-   npm run build
-   ```
+3. 或者手动步骤:
+   - 安装前端依赖: `npm install`
+   - 构建前端: `npm run build`
+   - 复制前端文件到后端: `mkdir -p backend/static && cp -r build/* backend/static/`
+   - 安装后端依赖: `cd backend && pip install -r requirements.txt`
+   - 启动后端: `python main.py`
 
-6. 复制前端构建文件到后端静态目录
-   ```bash
-   mkdir -p backend/static
-   cp -r build/* backend/static/
-   ```
-
-7. 启动后端服务
-   ```bash
-   cd backend
-   python main.py
-   ```
-
-8. 访问应用程序
+4. 访问应用程序
    浏览器打开 http://localhost:8000
 
 ### 使用 Docker 安装
@@ -117,6 +92,22 @@
 
 3. 访问应用程序
    浏览器打开 http://localhost:8000
+
+### 常见问题
+
+1. **找不到 index.html 错误**
+   - 错误消息: `RuntimeError: File at path /path/to/backend/static/index.html does not exist.`
+   - 原因: 前端静态文件没有正确复制到后端静态目录
+   - 解决方法: 
+     ```bash
+     mkdir -p backend/static
+     cp -r build/* backend/static/
+     ```
+   - 使用 Docker 时，确保 Dockerfile 中正确复制了静态文件
+
+2. **API接口404错误**
+   - 原因: 前端可能使用了错误的API路径
+   - 解决方法: 确保前端环境变量 `REACT_APP_API_URL` 设置为 `/api`
 
 ## 环境变量配置
 

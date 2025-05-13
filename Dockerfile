@@ -28,11 +28,17 @@ RUN apt-get update && apt-get install -y \
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 创建下载目录
-RUN mkdir -p /app/downloads
+# 创建必要的目录
+RUN mkdir -p /app/backend/downloads
+RUN mkdir -p /app/backend/static
 
 # 复制前端构建文件到后端静态文件目录
-COPY --from=frontend-builder /app/build /app/backend/static
+COPY --from=frontend-builder /app/build/* /app/backend/static/
+# 如果有子目录，确保也复制
+COPY --from=frontend-builder /app/build/static /app/backend/static/static
+
+# 列出静态目录内容以便调试
+RUN ls -la /app/backend/static/
 
 # 复制后端代码
 COPY backend/ /app/backend/

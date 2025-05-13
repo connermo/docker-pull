@@ -5,7 +5,7 @@ from pydantic import BaseModel
 import subprocess
 import os
 import tempfile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 import logging
 import json
 import shutil
@@ -47,13 +47,80 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
 
+# 记录目录信息
+logger.info(f"下载目录: {os.path.abspath(DOWNLOADS_DIR)}")
+logger.info(f"静态文件目录: {os.path.abspath(STATIC_DIR)}")
+
+# 检查静态文件是否存在
+index_html_path = os.path.join(STATIC_DIR, "index.html")
+if os.path.exists(index_html_path):
+    logger.info(f"找到index.html: {index_html_path}")
+else:
+    logger.warning(f"找不到index.html: {index_html_path}")
+    # 尝试在上一级目录查找
+    parent_static = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+    parent_index = os.path.join(parent_static, "index.html")
+    if os.path.exists(parent_index):
+        logger.info(f"在上级目录找到index.html: {parent_index}")
+        # 如果在上级目录找到，则使用上级目录
+        STATIC_DIR = parent_static
+        index_html_path = parent_index
+        logger.info(f"更新静态文件目录为: {STATIC_DIR}")
+    
+    # 列出静态目录中的文件
+    if os.path.exists(STATIC_DIR):
+        files = os.listdir(STATIC_DIR)
+        logger.info(f"静态目录中的文件: {files if files else '(空)'}")
+        # 如果有static子目录，列出它的内容
+        static_subdir = os.path.join(STATIC_DIR, "static")
+        if os.path.exists(static_subdir) and os.path.isdir(static_subdir):
+            subfiles = os.listdir(static_subdir)
+            logger.info(f"static子目录中的文件: {subfiles if subfiles else '(空)'}")
+
 # 挂载静态文件目录到 /static 路径
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # 添加根路径重定向到前端应用
 @app.get("/")
 async def root():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    index_path = os.path.join(STATIC_DIR, "index.html")
+    if not os.path.exists(index_path):
+        # 如果index.html不存在，返回一个简单的页面
+        logger.error(f"找不到index.html文件: {index_path}")
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Docker镜像下载器</title>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; }
+                h1 { color: #333; }
+                .error { color: #e74c3c; background: #fadbd8; padding: 10px; border-radius: 5px; }
+                .info { margin-top: 20px; background: #f8f9fa; padding: 15px; border-radius: 5px; }
+                code { background: #eee; padding: 2px 5px; border-radius: 3px; font-family: monospace; }
+            </style>
+        </head>
+        <body>
+            <h1>Docker镜像下载器</h1>
+            <div class="error">
+                <h2>配置错误</h2>
+                <p>找不到前端静态文件。请确保前端已正确构建并复制到静态目录。</p>
+            </div>
+            <div class="info">
+                <h3>排查步骤：</h3>
+                <ol>
+                    <li>确保前端构建成功: <code>npm run build</code></li>
+                    <li>确保静态文件已复制到后端: <code>cp -r build/* backend/static/</code></li>
+                    <li>检查Dockerfile中的复制命令是否正确</li>
+                    <li>重新构建并运行容器</li>
+                </ol>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html_content, status_code=500)
+    
+    return FileResponse(index_path)
 
 # 确保其他HTML路由也能正确返回前端页面（支持前端路由）
 @app.get("/{catch_all:path}")
@@ -65,10 +132,17 @@ async def catch_all(catch_all: str):
     # 检查是否存在对应的静态文件
     file_path = os.path.join(STATIC_DIR, catch_all)
     if os.path.exists(file_path) and os.path.isfile(file_path):
+        logger.info(f"提供静态文件: {file_path}")
         return FileResponse(file_path)
     
     # 否则返回index.html（让前端路由处理）
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    index_path = os.path.join(STATIC_DIR, "index.html")
+    if not os.path.exists(index_path):
+        logger.error(f"找不到index.html文件: {index_path}")
+        raise HTTPException(status_code=500, detail="前端静态文件未找到，请检查配置")
+    
+    logger.info(f"前端路由: {catch_all} -> index.html")
+    return FileResponse(index_path)
 
 logger.info(f"下载目录已创建: {DOWNLOADS_DIR}")
 
