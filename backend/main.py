@@ -21,6 +21,16 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# 模型定义
+class ImageRequest(BaseModel):
+    image_name: str
+
+class DownloadedFile(BaseModel):
+    name: str
+    size: int
+    created_at: str
+    path: str
+
 app = FastAPI()
 
 # 从环境变量获取配置
@@ -31,6 +41,33 @@ DOWNLOADS_DIR_ENV = os.getenv("DOWNLOADS_DIR")
 DOCKER_REGISTRY_MIRROR = os.getenv("DOCKER_REGISTRY_MIRROR")
 DOCKER_HTTP_PROXY = os.getenv("DOCKER_HTTP_PROXY")
 DOCKER_HTTPS_PROXY = os.getenv("DOCKER_HTTPS_PROXY")
+
+# Docker命令执行函数
+def run_docker_command(command):
+    try:
+        logger.info(f"执行Docker命令: {' '.join(command)}")
+        env = os.environ.copy()
+        
+        # 添加代理环境变量
+        if DOCKER_HTTP_PROXY:
+            env["HTTP_PROXY"] = DOCKER_HTTP_PROXY
+            env["http_proxy"] = DOCKER_HTTP_PROXY
+        if DOCKER_HTTPS_PROXY:
+            env["HTTPS_PROXY"] = DOCKER_HTTPS_PROXY
+            env["https_proxy"] = DOCKER_HTTPS_PROXY
+        
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env
+        )
+        logger.info(f"Docker命令输出: {result.stdout}")
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Docker命令执行失败: {e.stderr}")
+        raise HTTPException(status_code=500, detail=f"Docker命令执行失败: {e.stderr}")
 
 # 配置CORS
 app.add_middleware(
@@ -144,44 +181,10 @@ async def catch_all(catch_all: str):
     logger.info(f"前端路由: {catch_all} -> index.html")
     return FileResponse(index_path)
 
-logger.info(f"下载目录已创建: {DOWNLOADS_DIR}")
+# 创建API路由前缀
+api_router = FastAPI()
 
-class ImageRequest(BaseModel):
-    image_name: str
-
-class DownloadedFile(BaseModel):
-    name: str
-    size: int
-    created_at: str
-    path: str
-
-def run_docker_command(command):
-    try:
-        logger.info(f"执行Docker命令: {' '.join(command)}")
-        env = os.environ.copy()
-        
-        # 添加代理环境变量
-        if DOCKER_HTTP_PROXY:
-            env["HTTP_PROXY"] = DOCKER_HTTP_PROXY
-            env["http_proxy"] = DOCKER_HTTP_PROXY
-        if DOCKER_HTTPS_PROXY:
-            env["HTTPS_PROXY"] = DOCKER_HTTPS_PROXY
-            env["https_proxy"] = DOCKER_HTTPS_PROXY
-        
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=True,
-            env=env
-        )
-        logger.info(f"Docker命令输出: {result.stdout}")
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Docker命令执行失败: {e.stderr}")
-        raise HTTPException(status_code=500, detail=f"Docker命令执行失败: {e.stderr}")
-
-@app.get("/api/downloaded-files")
+@api_router.get("/downloaded-files")
 async def get_downloaded_files() -> List[DownloadedFile]:
     try:
         files = []
@@ -200,7 +203,7 @@ async def get_downloaded_files() -> List[DownloadedFile]:
         logger.error(f"获取文件列表失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取文件列表失败: {str(e)}")
 
-@app.get("/api/download-file")
+@api_router.get("/download-file")
 async def download_file(path: str):
     try:
         if not os.path.exists(path):
@@ -219,7 +222,7 @@ async def download_file(path: str):
         logger.error(f"下载文件失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"下载文件失败: {str(e)}")
 
-@app.post("/api/pull-image")
+@api_router.post("/pull-image")
 async def pull_image(request: ImageRequest):
     try:
         logger.info(f"开始拉取镜像: {request.image_name}")
@@ -276,7 +279,7 @@ async def pull_image(request: ImageRequest):
         logger.error(f"服务器错误: {str(e)}")
         raise HTTPException(status_code=500, detail=f"服务器错误: {str(e)}")
 
-@app.get("/api/pull-progress")
+@api_router.get("/pull-progress")
 async def get_pull_progress(image_name: str):
     try:
         # 获取镜像拉取进度
@@ -318,7 +321,7 @@ async def get_pull_progress(image_name: str):
         logger.error(f"获取进度失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取进度失败: {str(e)}")
 
-@app.delete("/api/clear-downloads")
+@api_router.delete("/clear-downloads")
 async def clear_downloads():
     try:
         logger.info("开始清空下载目录")
@@ -335,6 +338,12 @@ async def clear_downloads():
     except Exception as e:
         logger.error(f"清空下载目录失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"清空下载目录失败: {str(e)}")
+
+# 将API路由添加到主应用，带前缀
+app.mount("/api", api_router)
+
+logger.info(f"下载目录已创建: {DOWNLOADS_DIR}")
+logger.info("API路由已挂载到 /api 前缀")
 
 if __name__ == "__main__":
     import uvicorn
