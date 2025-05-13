@@ -39,5 +39,13 @@ WORKDIR /app/backend
 # 暴露端口
 EXPOSE 8000
 
+# 设置环境变量
+ENV API_HOST=0.0.0.0
+ENV API_PORT=8000
+# 可在运行容器时覆盖以下环境变量
+ENV DOCKER_REGISTRY_MIRROR=""
+ENV DOCKER_HTTP_PROXY=""
+ENV DOCKER_HTTPS_PROXY=""
+
 # 启动命令
 CMD ["python", "main.py"] 

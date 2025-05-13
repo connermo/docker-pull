@@ -28,6 +28,9 @@ API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
 DOWNLOADS_DIR_ENV = os.getenv("DOWNLOADS_DIR")
+DOCKER_REGISTRY_MIRROR = os.getenv("DOCKER_REGISTRY_MIRROR")
+DOCKER_HTTP_PROXY = os.getenv("DOCKER_HTTP_PROXY")
+DOCKER_HTTPS_PROXY = os.getenv("DOCKER_HTTPS_PROXY")
 
 # 配置CORS
 app.add_middleware(
@@ -66,11 +69,22 @@ class DownloadedFile(BaseModel):
 def run_docker_command(command):
     try:
         logger.info(f"执行Docker命令: {' '.join(command)}")
+        env = os.environ.copy()
+        
+        # 添加代理环境变量
+        if DOCKER_HTTP_PROXY:
+            env["HTTP_PROXY"] = DOCKER_HTTP_PROXY
+            env["http_proxy"] = DOCKER_HTTP_PROXY
+        if DOCKER_HTTPS_PROXY:
+            env["HTTPS_PROXY"] = DOCKER_HTTPS_PROXY
+            env["https_proxy"] = DOCKER_HTTPS_PROXY
+        
         result = subprocess.run(
             command,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            env=env
         )
         logger.info(f"Docker命令输出: {result.stdout}")
         return result.stdout
@@ -137,7 +151,15 @@ async def pull_image(request: ImageRequest):
         
         # 拉取镜像
         logger.info("正在拉取镜像...")
-        run_docker_command(["docker", "pull", request.image_name])
+        pull_cmd = ["docker", "pull"]
+        
+        # 如果配置了镜像仓库镜像，则添加相关参数
+        if DOCKER_REGISTRY_MIRROR:
+            logger.info(f"使用镜像仓库镜像: {DOCKER_REGISTRY_MIRROR}")
+            pull_cmd.extend(["--registry-mirror", DOCKER_REGISTRY_MIRROR])
+        
+        pull_cmd.append(request.image_name)
+        run_docker_command(pull_cmd)
         
         # 保存镜像为tar文件
         logger.info("正在保存镜像...")
@@ -169,10 +191,28 @@ async def pull_image(request: ImageRequest):
 async def get_pull_progress(image_name: str):
     try:
         # 获取镜像拉取进度
+        pull_cmd = ["docker", "pull"]
+        
+        # 如果配置了镜像仓库镜像，则添加相关参数
+        if DOCKER_REGISTRY_MIRROR:
+            pull_cmd.extend(["--registry-mirror", DOCKER_REGISTRY_MIRROR])
+            
+        pull_cmd.append(image_name)
+        
+        env = os.environ.copy()
+        # 添加代理环境变量
+        if DOCKER_HTTP_PROXY:
+            env["HTTP_PROXY"] = DOCKER_HTTP_PROXY
+            env["http_proxy"] = DOCKER_HTTP_PROXY
+        if DOCKER_HTTPS_PROXY:
+            env["HTTPS_PROXY"] = DOCKER_HTTPS_PROXY
+            env["https_proxy"] = DOCKER_HTTPS_PROXY
+            
         result = subprocess.run(
-            ["docker", "pull", image_name],
+            pull_cmd,
             capture_output=True,
-            text=True
+            text=True,
+            env=env
         )
         
         # 解析输出以获取进度信息

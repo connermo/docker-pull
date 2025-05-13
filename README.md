@@ -101,6 +101,19 @@
      docker-pull
    ```
 
+   带网络配置的示例：
+   ```bash
+   docker run -d \
+     --name docker-pull \
+     -p 8000:8000 \
+     -v /var/run/docker.sock:/var/run/docker.sock \
+     -v $(pwd)/backend/downloads:/app/backend/downloads \
+     -e DOCKER_REGISTRY_MIRROR=https://registry.docker-cn.com \
+     -e DOCKER_HTTP_PROXY=http://proxy.example.com:8080 \
+     -e DOCKER_HTTPS_PROXY=http://proxy.example.com:8080 \
+     docker-pull
+   ```
+
 3. 访问应用程序
    浏览器打开 http://localhost:8000
 
@@ -126,7 +139,29 @@ API_PORT=8000
 CORS_ORIGINS=http://localhost:3000
 # 下载文件存储目录，如果不指定，则使用默认路径 ./downloads
 DOWNLOADS_DIR=./downloads
+# Docker 镜像仓库镜像地址 (可选)
+DOCKER_REGISTRY_MIRROR=https://mirror.example.com
+# Docker HTTP 代理设置 (可选)
+DOCKER_HTTP_PROXY=http://proxy.example.com:8080
+# Docker HTTPS 代理设置 (可选)
+DOCKER_HTTPS_PROXY=http://proxy.example.com:8080
 ```
+
+### Docker 网络配置
+
+本应用支持两种方式加速 Docker 镜像下载：
+
+1. **使用镜像仓库镜像（Registry Mirror）**：
+   - 设置 `DOCKER_REGISTRY_MIRROR` 环境变量指向镜像仓库地址
+   - 例如：`DOCKER_REGISTRY_MIRROR=https://registry.docker-cn.com`
+   - 这将在 `docker pull` 命令中自动添加 `--registry-mirror` 参数
+
+2. **使用 HTTP/HTTPS 代理**：
+   - 设置 `DOCKER_HTTP_PROXY` 和 `DOCKER_HTTPS_PROXY` 环境变量
+   - 例如：`DOCKER_HTTP_PROXY=http://10.0.0.1:8080`
+   - 这将在执行 Docker 命令时设置相应的代理环境变量
+
+这些配置可以单独使用，也可以同时使用。在网络环境不佳或使用私有 Docker Registry 的情况下特别有用。
 
 ## 开发指南
 
