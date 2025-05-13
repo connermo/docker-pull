@@ -3,6 +3,10 @@ FROM node:18-alpine as frontend-builder
 
 WORKDIR /app
 
+# 设置前端环境变量
+ENV REACT_APP_API_URL=/api
+ENV REACT_APP_AUTH_PASSWORD=admin123
+
 # 复制前端文件
 COPY package*.json ./
 RUN npm install

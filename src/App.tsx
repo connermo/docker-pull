@@ -3,6 +3,8 @@ import axios from 'axios';
 
 // 使用环境变量或默认值
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+// 从环境变量获取密码
+const AUTH_PASSWORD = process.env.REACT_APP_AUTH_PASSWORD || 'admin123';
 
 interface DownloadedFile {
   name: string;
@@ -18,6 +20,30 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [downloadedFiles, setDownloadedFiles] = useState<DownloadedFile[]>([]);
   const [isClearing, setIsClearing] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+
+  // 组件加载时检查是否已经认证过（从localStorage读取）
+  useEffect(() => {
+    const authenticated = localStorage.getItem('docker-pull-authenticated');
+    if (authenticated === 'true') {
+      setIsAuthenticated(true);
+    }
+  }, []);
+
+  // 处理认证
+  const handleAuthenticate = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password === AUTH_PASSWORD) {
+      setIsAuthenticated(true);
+      setError('');
+      // 存储认证状态到localStorage
+      localStorage.setItem('docker-pull-authenticated', 'true');
+    } else {
+      setError('密码错误，请重试');
+    }
+  };
 
   // 获取已下载文件列表
   const fetchDownloadedFiles = async () => {
@@ -31,8 +57,10 @@ function App() {
 
   // 组件加载时获取文件列表
   useEffect(() => {
-    fetchDownloadedFiles();
-  }, []);
+    if (isAuthenticated) {
+      fetchDownloadedFiles();
+    }
+  }, [isAuthenticated]);
 
   // 检查下载进度
   const checkProgress = async () => {
@@ -126,6 +154,52 @@ function App() {
     }
   };
 
+  // 登出方法
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    localStorage.removeItem('docker-pull-authenticated');
+  };
+
+  // 如果未认证，显示认证页面
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gray-100 py-6 flex flex-col justify-center sm:py-12">
+        <div className="relative py-3 sm:max-w-md sm:mx-auto">
+          <div className="relative px-4 py-10 bg-white shadow-lg sm:rounded-3xl sm:p-12">
+            <div className="max-w-md mx-auto">
+              <div className="divide-y divide-gray-200">
+                <div className="py-8 text-base leading-6 space-y-3 text-gray-700 sm:text-lg sm:leading-7">
+                  <h1 className="text-xl font-bold text-center mb-8">Docker镜像下载器</h1>
+                  
+                  <form onSubmit={handleAuthenticate} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">请输入访问密码</label>
+                      <input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="输入密码"
+                        className="w-full px-3 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        required
+                      />
+                      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full bg-blue-500 text-white py-1.5 px-4 text-sm rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    >
+                      登录
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 py-6 flex flex-col justify-center sm:py-12">
       <div className="relative py-3 sm:max-w-4xl sm:mx-auto">
@@ -133,7 +207,15 @@ function App() {
           <div className="max-w-4xl mx-auto">
             <div className="divide-y divide-gray-200">
               <div className="py-8 text-base leading-6 space-y-3 text-gray-700 sm:text-lg sm:leading-7">
-                <h1 className="text-xl font-bold text-center mb-8">Docker镜像下载器</h1>
+                <div className="flex justify-between items-center mb-4">
+                  <h1 className="text-xl font-bold">Docker镜像下载器</h1>
+                  <button
+                    onClick={handleLogout}
+                    className="px-3 py-1 text-sm font-medium text-gray-500 hover:text-gray-700"
+                  >
+                    退出登录
+                  </button>
+                </div>
                 
                 {/* 下载表单 */}
                 <div className="max-w-2xl mx-auto space-y-3">
@@ -171,7 +253,7 @@ function App() {
                   )}
                 </div>
 
-                {/* 已下载文件列表区域 - 始终显示，但内容根据状态变化 */}
+                {/* 已下载文件列表区域 */}
                 <div className="max-w-2xl mx-auto mt-8">
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-lg font-semibold text-gray-900">已下载的镜像</h2>

@@ -111,6 +111,7 @@
      -e DOCKER_REGISTRY_MIRROR=https://registry.docker-cn.com \
      -e DOCKER_HTTP_PROXY=http://proxy.example.com:8080 \
      -e DOCKER_HTTPS_PROXY=http://proxy.example.com:8080 \
+     -e REACT_APP_AUTH_PASSWORD=your_custom_password \
      docker-pull
    ```
 
@@ -127,6 +128,8 @@ REACT_APP_API_URL=http://localhost:8000/api
 REACT_APP_STATIC_URL=/static
 # 前端开发服务器端口
 PORT=3000
+# 前端访问密码
+REACT_APP_AUTH_PASSWORD=admin123
 ```
 
 ### 后端环境变量 (backend/.env)
@@ -203,4 +206,19 @@ DOCKER_HTTPS_PROXY=http://proxy.example.com:8080
 
 ## 许可证
 
-[MIT](LICENSE) 
+[MIT](LICENSE)
+
+### 安全性配置
+
+应用包含一个简单的密码认证机制，防止未授权访问：
+
+1. **密码认证**：
+   - 首次访问应用需要输入密码
+   - 默认密码为 `admin123`
+   - 可通过环境变量 `REACT_APP_AUTH_PASSWORD` 自定义密码
+   - 认证状态会保存在浏览器的 localStorage 中，刷新页面不需要重新认证
+
+2. **安全建议**：
+   - 生产环境中请务必修改默认密码
+   - 考虑使用反向代理服务器提供更强的访问控制
+   - 使用 HTTPS 保护数据传输安全 
