@@ -13,6 +13,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -27,5 +30,11 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/docker-pull:latest 
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/docker-pull:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/docker-pull:latest-amd64
+            ${{ secrets.DOCKERHUB_USERNAME }}/docker-pull:latest-arm64
+            ${{ secrets.DOCKERHUB_USERNAME }}/docker-pull:latest-mac-intel
+            ${{ secrets.DOCKERHUB_USERNAME }}/docker-pull:latest-mac-arm 
