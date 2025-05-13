@@ -371,12 +371,6 @@ async def api_get_downloaded_files():
         logger.error(f"获取文件列表失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取文件列表失败: {str(e)}")
 
-# 添加一个别名路由，处理 /api/download-files 请求，修复前端URL不匹配问题
-@app.get("/api/download-files")
-async def api_get_download_files():
-    logger.info("通过别名路由调用 /api/download-files 端点")
-    return await api_get_downloaded_files()
-
 @app.get("/api/download-file")
 async def api_download_file(path: str):
     logger.info(f"直接调用 /api/download-file 端点，路径: {path}")
