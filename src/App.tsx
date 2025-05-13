@@ -23,6 +23,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // 组件加载时检查是否已经认证过（从localStorage读取）
   useEffect(() => {
@@ -271,10 +272,24 @@ function App() {
                       </button>
                     )}
                   </div>
+                  {/* 搜索框 */}
+                  <div className="mb-4">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="搜索文件名..."
+                      className="w-full px-3 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                   <div className="bg-white shadow overflow-hidden sm:rounded-md">
                     {downloadedFiles.length > 0 ? (
                       <div className="space-y-3">
-                        {downloadedFiles.map((file) => (
+                        {downloadedFiles
+                          .filter(file => 
+                            file.name.toLowerCase().includes(searchQuery.toLowerCase())
+                          )
+                          .map((file) => (
                           <div
                             key={file.path}
                             className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
