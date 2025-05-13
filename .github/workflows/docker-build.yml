@@ -30,11 +30,9 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
+          platforms: linux/arm64,darwin/arm64
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/docker-pull:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/docker-pull:latest-amd64
             ${{ secrets.DOCKERHUB_USERNAME }}/docker-pull:latest-arm64
-            ${{ secrets.DOCKERHUB_USERNAME }}/docker-pull:latest-mac-intel
             ${{ secrets.DOCKERHUB_USERNAME }}/docker-pull:latest-mac-arm 
