@@ -43,7 +43,7 @@ DOCKER_HTTP_PROXY = os.getenv("DOCKER_HTTP_PROXY")
 DOCKER_HTTPS_PROXY = os.getenv("DOCKER_HTTPS_PROXY")
 
 # Docker命令执行函数
-def run_docker_command(command):
+def run_docker_command(command, stream_output=False):
     try:
         logger.info(f"执行Docker命令: {' '.join(command)}")
         env = os.environ.copy()
@@ -56,15 +56,27 @@ def run_docker_command(command):
             env["HTTPS_PROXY"] = DOCKER_HTTPS_PROXY
             env["https_proxy"] = DOCKER_HTTPS_PROXY
         
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=True,
-            env=env
-        )
-        logger.info(f"Docker命令输出: {result.stdout}")
-        return result.stdout
+        if stream_output:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+                bufsize=1,
+                universal_newlines=True
+            )
+            return process
+        else:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=True,
+                env=env
+            )
+            logger.info(f"Docker命令输出: {result.stdout}")
+            return result.stdout
     except subprocess.CalledProcessError as e:
         logger.error(f"Docker命令执行失败: {e.stderr}")
         raise HTTPException(status_code=500, detail=f"Docker命令执行失败: {e.stderr}")
@@ -221,7 +233,7 @@ async def api_clear_downloads():
 
 @app.get("/api/pull-progress")
 async def api_get_pull_progress(image_name: str):
-    logger.info(f"直接调用 /api/pull-progress 端点，镜像: {image_name}")
+    logger.info(f"获取镜像拉取进度，镜像: {image_name}")
     try:
         # 获取镜像拉取进度
         pull_cmd = ["docker", "pull"]
@@ -241,22 +253,61 @@ async def api_get_pull_progress(image_name: str):
             env["HTTPS_PROXY"] = DOCKER_HTTPS_PROXY
             env["https_proxy"] = DOCKER_HTTPS_PROXY
             
-        result = subprocess.run(
-            pull_cmd,
-            capture_output=True,
-            text=True,
-            env=env
-        )
+        process = run_docker_command(pull_cmd, stream_output=True)
         
         # 解析输出以获取进度信息
-        output = result.stdout
-        if "Downloading" in output:
-            # 这里可以添加更复杂的进度解析逻辑
-            return {"status": "downloading", "progress": 50}
-        elif "Download complete" in output:
-            return {"status": "complete", "progress": 100}
-        else:
-            return {"status": "unknown", "progress": 0}
+        output_lines = []
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            if line:
+                output_lines.append(line.strip())
+                logger.info(f"Docker pull 输出: {line.strip()}")
+        
+        # 分析输出以确定进度
+        status = "unknown"
+        progress = 0
+        detail = ""
+        
+        for line in output_lines:
+            if "Pulling from" in line:
+                status = "starting"
+                detail = line
+            elif "Pulling fs layer" in line:
+                status = "downloading"
+                detail = line
+            elif "Downloading" in line:
+                status = "downloading"
+                # 尝试从输出中提取进度百分比
+                if "%" in line:
+                    try:
+                        progress_str = line.split("%")[0].split()[-1]
+                        progress = float(progress_str)
+                    except (ValueError, IndexError):
+                        pass
+                detail = line
+            elif "Verifying Checksum" in line:
+                status = "verifying"
+                detail = line
+            elif "Download complete" in line:
+                status = "complete"
+                progress = 100
+                detail = line
+            elif "Already exists" in line:
+                status = "complete"
+                progress = 100
+                detail = "镜像已存在"
+            elif "Error" in line or "error" in line:
+                status = "error"
+                detail = line
+        
+        return {
+            "status": status,
+            "progress": progress,
+            "detail": detail,
+            "output": output_lines
+        }
             
     except Exception as e:
         logger.error(f"获取进度失败: {str(e)}")
@@ -461,22 +512,61 @@ async def get_pull_progress(image_name: str):
             env["HTTPS_PROXY"] = DOCKER_HTTPS_PROXY
             env["https_proxy"] = DOCKER_HTTPS_PROXY
             
-        result = subprocess.run(
-            pull_cmd,
-            capture_output=True,
-            text=True,
-            env=env
-        )
+        process = run_docker_command(pull_cmd, stream_output=True)
         
         # 解析输出以获取进度信息
-        output = result.stdout
-        if "Downloading" in output:
-            # 这里可以添加更复杂的进度解析逻辑
-            return {"status": "downloading", "progress": 50}
-        elif "Download complete" in output:
-            return {"status": "complete", "progress": 100}
-        else:
-            return {"status": "unknown", "progress": 0}
+        output_lines = []
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            if line:
+                output_lines.append(line.strip())
+                logger.info(f"Docker pull 输出: {line.strip()}")
+        
+        # 分析输出以确定进度
+        status = "unknown"
+        progress = 0
+        detail = ""
+        
+        for line in output_lines:
+            if "Pulling from" in line:
+                status = "starting"
+                detail = line
+            elif "Pulling fs layer" in line:
+                status = "downloading"
+                detail = line
+            elif "Downloading" in line:
+                status = "downloading"
+                # 尝试从输出中提取进度百分比
+                if "%" in line:
+                    try:
+                        progress_str = line.split("%")[0].split()[-1]
+                        progress = float(progress_str)
+                    except (ValueError, IndexError):
+                        pass
+                detail = line
+            elif "Verifying Checksum" in line:
+                status = "verifying"
+                detail = line
+            elif "Download complete" in line:
+                status = "complete"
+                progress = 100
+                detail = line
+            elif "Already exists" in line:
+                status = "complete"
+                progress = 100
+                detail = "镜像已存在"
+            elif "Error" in line or "error" in line:
+                status = "error"
+                detail = line
+        
+        return {
+            "status": status,
+            "progress": progress,
+            "detail": detail,
+            "output": output_lines
+        }
             
     except Exception as e:
         logger.error(f"获取进度失败: {str(e)}")

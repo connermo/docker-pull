@@ -18,12 +18,15 @@ function App() {
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [detail, setDetail] = useState('');
+  const [output, setOutput] = useState<string[]>([]);
   const [downloadedFiles, setDownloadedFiles] = useState<DownloadedFile[]>([]);
   const [isClearing, setIsClearing] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showOutput, setShowOutput] = useState(false);
 
   // 组件加载时检查是否已经认证过（从localStorage读取）
   useEffect(() => {
@@ -67,11 +70,20 @@ function App() {
   const checkProgress = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/pull-progress?image_name=${imageName}`);
-      const { status, progress } = response.data;
+      const { status, progress, detail, output } = response.data;
       setStatus(status);
       setProgress(progress);
+      setDetail(detail);
+      setOutput(output);
+      
+      // 如果状态是 complete 或 error，停止轮询
+      if (status === 'complete' || status === 'error') {
+        setLoading(false);
+      }
     } catch (error) {
       console.error('获取进度失败:', error);
+      setStatus('error');
+      setLoading(false);
     }
   };
 
@@ -97,15 +109,24 @@ function App() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setStatus('downloading');
+    setStatus('starting');
     setProgress(0);
+    setDetail('');
+    setOutput([]);
+    setShowOutput(false);
 
     try {
+      // 开始轮询进度
+      const progressInterval = setInterval(checkProgress, 1000);
+
       const response = await axios.post(`${API_BASE_URL}/pull-image`, {
         image_name: imageName
       }, {
         responseType: 'blob'
       });
+
+      // 清除进度轮询
+      clearInterval(progressInterval);
 
       // 创建下载链接
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -240,16 +261,43 @@ function App() {
                     </button>
                   </form>
 
-                  {/* 进度条 */}
+                  {/* 进度条和状态信息 */}
                   {loading && (
-                    <div className="mt-3">
+                    <div className="mt-3 space-y-2">
                       <div className="w-full bg-gray-200 rounded-full h-2">
                         <div
-                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                          className={`h-2 rounded-full transition-all duration-300 ${
+                            status === 'error' ? 'bg-red-600' : 'bg-blue-600'
+                          }`}
                           style={{ width: `${progress}%` }}
                         ></div>
                       </div>
-                      <p className="text-xs text-gray-600 mt-1">{status}</p>
+                      <div className="flex justify-between items-center">
+                        <p className="text-sm text-gray-600">
+                          {status === 'starting' && '正在开始下载...'}
+                          {status === 'downloading' && '正在下载...'}
+                          {status === 'verifying' && '正在验证...'}
+                          {status === 'complete' && '下载完成'}
+                          {status === 'error' && '下载出错'}
+                          {status === 'unknown' && '未知状态'}
+                        </p>
+                        <button
+                          onClick={() => setShowOutput(!showOutput)}
+                          className="text-xs text-blue-500 hover:text-blue-700"
+                        >
+                          {showOutput ? '隐藏详情' : '显示详情'}
+                        </button>
+                      </div>
+                      {detail && (
+                        <p className="text-xs text-gray-500">{detail}</p>
+                      )}
+                      {showOutput && output.length > 0 && (
+                        <div className="mt-2 p-2 bg-gray-50 rounded text-xs font-mono overflow-auto max-h-40">
+                          {output.map((line, index) => (
+                            <div key={index} className="text-gray-600">{line}</div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
