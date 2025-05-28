@@ -9,9 +9,14 @@ services:
       - "8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./downloads:/app/backend/downloads
     environment:
-      - FLASK_APP=main.py
-      - FLASK_ENV=development
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DOCKER_REGISTRY_MIRROR=""
+      - DOCKER_HTTP_PROXY=""
+      - DOCKER_HTTPS_PROXY=""
+    restart: unless-stopped
 
 networks:
   app-network:

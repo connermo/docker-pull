@@ -68,21 +68,29 @@
 
 2. 运行容器
    ```bash
+   # 创建下载目录
+   mkdir -p ./downloads
+
+   # 运行容器
    docker run -d \
      --name docker-pull \
      -p 8000:8000 \
      -v /var/run/docker.sock:/var/run/docker.sock \
-     -v $(pwd)/backend/downloads:/app/backend/downloads \
+     -v $(pwd)/downloads:/app/backend/downloads \
      docker-pull
    ```
 
    带网络配置的示例：
    ```bash
+   # 创建下载目录
+   mkdir -p ./downloads
+
+   # 运行容器
    docker run -d \
      --name docker-pull \
      -p 8000:8000 \
      -v /var/run/docker.sock:/var/run/docker.sock \
-     -v $(pwd)/backend/downloads:/app/backend/downloads \
+     -v $(pwd)/downloads:/app/backend/downloads \
      -e DOCKER_REGISTRY_MIRROR=https://registry.docker-cn.com \
      -e DOCKER_HTTP_PROXY=http://proxy.example.com:8080 \
      -e DOCKER_HTTPS_PROXY=http://proxy.example.com:8080 \
@@ -90,8 +98,24 @@
      docker-pull
    ```
 
+   使用 docker-compose 运行（推荐）：
+   ```bash
+   # 创建下载目录
+   mkdir -p ./downloads
+
+   # 启动服务
+   docker-compose up -d
+   ```
+
 3. 访问应用程序
    浏览器打开 http://localhost:8000
+
+### 目录说明
+
+- `./downloads`: 下载的 Docker 镜像文件存储目录
+  - 此目录会被挂载到容器内的 `/app/backend/downloads`
+  - 即使容器被删除，下载的镜像文件也会保留
+  - 建议定期清理此目录以节省磁盘空间
 
 ### 常见问题
 
@@ -108,6 +132,28 @@
 2. **API接口404错误**
    - 原因: 前端可能使用了错误的API路径
    - 解决方法: 确保前端环境变量 `REACT_APP_API_URL` 设置为 `/api`
+
+3. **下载目录权限问题**
+   - 错误消息: `Permission denied` 或 `无法写入下载目录`
+   - 原因: 容器内外的用户权限不匹配
+   - 解决方法:
+     ```bash
+     # 确保下载目录有正确的权限
+     chmod 777 ./downloads
+     # 或者指定目录所有者
+     sudo chown -R 1000:1000 ./downloads  # 1000 是容器内默认用户 ID
+     ```
+
+4. **磁盘空间不足**
+   - 原因: 下载的镜像文件占用大量磁盘空间
+   - 解决方法:
+     ```bash
+     # 查看下载目录大小
+     du -sh ./downloads
+     # 清理不需要的镜像文件
+     rm ./downloads/*.tar
+     # 或使用应用内的"清空所有"功能
+     ```
 
 ## 环境变量配置
 
