@@ -20,10 +20,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including pigz for high-speed compression
 RUN apt-get update && apt-get install -y \
     docker.io \
     nginx \
+    pigz \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy backend files

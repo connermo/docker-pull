@@ -101,22 +101,39 @@ function App() {
 
     try {
       // 先启动下载进程
+      console.log('开始下载镜像:', imageName);
       await axios.post(`${API_BASE_URL}/pull-image`, {
         image_name: imageName
       });
 
-      // 开始轮询进度
+      // 立即获取一次进度
+      try {
+        const response = await axios.get(`${API_BASE_URL}/pull-progress?image_name=${imageName}`);
+        const { status, progress, detail, output } = response.data;
+        console.log('初始进度:', { status, progress, detail, output });
+        setStatus(status);
+        setProgress(progress);
+        setDetail(detail);
+        setOutput(output || []);
+      } catch (error) {
+        console.error('获取初始进度失败:', error);
+      }
+
+      // 开始更频繁的轮询进度（每500毫秒）
       progressInterval = setInterval(async () => {
         try {
           const response = await axios.get(`${API_BASE_URL}/pull-progress?image_name=${imageName}`);
           const { status, progress, detail, output } = response.data;
+          console.log('轮询进度:', { status, progress, detail, outputLength: output?.length });
+          
           setStatus(status);
           setProgress(progress);
           setDetail(detail);
-          setOutput(output);
+          setOutput(output || []);
           
           // 如果状态是 complete 或 error，停止轮询
           if (status === 'complete' || status === 'error') {
+            console.log('下载完成，停止轮询');
             if (progressInterval) {
               clearInterval(progressInterval);
               progressInterval = null;
@@ -138,7 +155,7 @@ function App() {
           setStatus('error');
           setLoading(false);
         }
-      }, 1000);
+      }, 500); // 改为每500毫秒轮询一次
 
     } catch (error) {
       console.error('下载失败:', error);
@@ -198,9 +215,9 @@ function App() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-100 py-6 flex flex-col justify-center sm:py-12">
-        <div className="relative py-3 sm:max-w-md sm:mx-auto">
-          <div className="relative px-4 py-10 bg-white shadow-lg sm:rounded-3xl sm:p-12">
-            <div className="max-w-md mx-auto">
+        <div className="relative py-3 mx-auto max-w-2xl">
+          <div className="relative px-4 py-10 bg-white shadow-lg rounded-3xl">
+            <div className="mx-auto" style={{ width: '400px', maxWidth: '100%' }}>
               <div className="divide-y divide-gray-200">
                 <div className="py-8 text-base leading-6 space-y-3 text-gray-700 sm:text-lg sm:leading-7">
                   <h1 className="text-xl font-bold text-center mb-8">Docker镜像下载器</h1>
@@ -236,9 +253,9 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-100 py-6 flex flex-col justify-center sm:py-12">
-      <div className="relative py-3 sm:max-w-4xl sm:mx-auto">
-        <div className="relative px-4 py-10 bg-white shadow-lg sm:rounded-3xl sm:p-12">
-          <div className="max-w-4xl mx-auto">
+      <div className="relative py-3 mx-auto max-w-4xl">
+        <div className="relative px-4 py-10 bg-white shadow-lg rounded-3xl">
+          <div className="w-full mx-auto">
             <div className="divide-y divide-gray-200">
               <div className="py-8 text-base leading-6 space-y-3 text-gray-700 sm:text-lg sm:leading-7">
                 <div className="flex justify-between items-center mb-4">
@@ -251,8 +268,8 @@ function App() {
                   </button>
                 </div>
                 
-                {/* 下载表单 */}
-                <div className="max-w-2xl mx-auto space-y-3">
+                {/* 下载表单 - 固定800px宽度 */}
+                <div className="mx-auto space-y-3" style={{ width: '800px', maxWidth: '100%' }}>
                   <form onSubmit={handleSubmit} className="space-y-3">
                     <div>
                       <input
@@ -288,34 +305,73 @@ function App() {
                         <p className="text-sm text-gray-600">
                           {status === 'starting' && '正在开始下载...'}
                           {status === 'downloading' && '正在下载...'}
+                          {status === 'saving' && '正在保存镜像...'}
                           {status === 'verifying' && '正在验证...'}
                           {status === 'complete' && '下载完成'}
                           {status === 'error' && '下载出错'}
-                          {status === 'unknown' && '未知状态'}
+                          {!['starting', 'downloading', 'saving', 'verifying', 'complete', 'error'].includes(status) && '处理中...'}
                         </p>
-                        <button
-                          onClick={() => setShowOutput(!showOutput)}
-                          className="text-xs text-blue-500 hover:text-blue-700"
-                        >
-                          {showOutput ? '隐藏详情' : '显示详情'}
-                        </button>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs text-gray-500">{progress}%</span>
+                          {output.length > 0 && (
+                            <button
+                              onClick={() => setShowOutput(!showOutput)}
+                              className="text-xs text-blue-500 hover:text-blue-700"
+                            >
+                              {showOutput ? '隐藏详情' : '显示详情'}
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {detail && (
                         <p className="text-xs text-gray-500">{detail}</p>
                       )}
-                      {showOutput && output.length > 0 && (
-                        <div className="mt-2 p-2 bg-gray-50 rounded text-xs font-mono overflow-auto max-h-40">
-                          {output.map((line, index) => (
-                            <div key={index} className="text-gray-600">{line}</div>
-                          ))}
+                      {/* 实时日志输出 */}
+                      {output.length > 0 && showOutput && (
+                        <div className="mt-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-gray-600">实时日志:</span>
+                            <button
+                              onClick={() => setShowOutput(!showOutput)}
+                              className="text-xs text-gray-400 hover:text-gray-600"
+                            >
+                              收起
+                            </button>
+                          </div>
+                          <div 
+                            className="bg-gray-900 text-green-400 p-3 rounded text-xs font-mono overflow-auto max-h-60"
+                            style={{ 
+                              fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+                              lineHeight: '1.4'
+                            }}
+                          >
+                            {output.slice(-50).map((line, index) => (
+                              <div 
+                                key={index} 
+                                className={`mb-1 ${
+                                  line.includes('[错误]') ? 'text-red-400' : 
+                                  line.includes('完成') ? 'text-blue-400' : 
+                                  line.includes('开始') ? 'text-yellow-400' : 
+                                  'text-green-400'
+                                }`}
+                              >
+                                {line}
+                              </div>
+                            ))}
+                            {output.length > 50 && (
+                              <div className="text-gray-500 text-center py-1">
+                                ... 显示最近50条日志 (共{output.length}条) ...
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
                   )}
                 </div>
 
-                {/* 已下载文件列表区域 */}
-                <div className="max-w-2xl mx-auto mt-8">
+                {/* 已下载文件列表区域 - 也固定800px宽度 */}
+                <div className="mx-auto mt-8" style={{ width: '800px', maxWidth: '100%' }}>
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-lg font-semibold text-gray-900">已下载的镜像</h2>
                     {downloadedFiles.length > 0 && (
