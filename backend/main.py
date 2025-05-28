@@ -13,6 +13,7 @@ import time
 from typing import Optional, List
 from datetime import datetime
 from dotenv import load_dotenv
+from fastapi import APIRouter
 
 # 加载环境变量
 load_dotenv()
@@ -129,6 +130,9 @@ else:
 # 挂载静态文件目录到 /static 路径
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+# 创建 API 路由
+api_router = APIRouter(prefix="/api")
+
 # 添加根路径重定向到前端应用
 @app.get("/")
 async def root():
@@ -171,427 +175,33 @@ async def root():
     
     return FileResponse(index_path)
 
-# 重新定义所有API端点为直接的app路由，避免FastAPI子应用的问题
-@app.get("/api/downloaded-files")
-async def api_get_downloaded_files():
-    logger.info("直接调用 /api/downloaded-files 端点")
-    try:
-        files = []
-        for filename in os.listdir(DOWNLOADS_DIR):
-            if filename.endswith('.tar'):
-                file_path = os.path.join(DOWNLOADS_DIR, filename)
-                stat = os.stat(file_path)
-                files.append(DownloadedFile(
-                    name=filename,
-                    size=stat.st_size,
-                    created_at=datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d %H:%M:%S'),
-                    path=file_path
-                ))
-        return sorted(files, key=lambda x: x.created_at, reverse=True)
-    except Exception as e:
-        logger.error(f"获取文件列表失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取文件列表失败: {str(e)}")
-
-@app.get("/api/download-file")
-async def api_download_file(path: str):
-    logger.info(f"直接调用 /api/download-file 端点，路径: {path}")
-    try:
-        if not os.path.exists(path):
-            raise HTTPException(status_code=404, detail="文件不存在")
-        
-        # 确保文件在downloads目录中
-        if not os.path.abspath(path).startswith(os.path.abspath(DOWNLOADS_DIR)):
-            raise HTTPException(status_code=403, detail="无权访问该文件")
-            
-        return FileResponse(
-            path,
-            media_type='application/octet-stream',
-            filename=os.path.basename(path)
-        )
-    except Exception as e:
-        logger.error(f"下载文件失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"下载文件失败: {str(e)}")
-
-@app.delete("/api/clear-downloads")
-async def api_clear_downloads():
-    logger.info("直接调用 /api/clear-downloads 端点")
-    try:
-        logger.info("开始清空下载目录")
-        for filename in os.listdir(DOWNLOADS_DIR):
-            if filename.endswith('.tar'):
-                file_path = os.path.join(DOWNLOADS_DIR, filename)
-                try:
-                    os.remove(file_path)
-                    logger.info(f"已删除文件: {filename}")
-                except Exception as e:
-                    logger.error(f"删除文件 {filename} 失败: {str(e)}")
-                    raise HTTPException(status_code=500, detail=f"删除文件失败: {str(e)}")
-        return {"message": "所有文件已清空"}
-    except Exception as e:
-        logger.error(f"清空下载目录失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"清空下载目录失败: {str(e)}")
-
-@app.get("/api/pull-progress")
-async def api_get_pull_progress(image_name: str):
-    logger.info(f"获取镜像拉取进度，镜像: {image_name}")
-    try:
-        # 获取镜像拉取进度
-        pull_cmd = ["docker", "pull"]
-        
-        # 如果配置了镜像仓库镜像，则添加相关参数
-        if DOCKER_REGISTRY_MIRROR:
-            pull_cmd.extend(["--registry-mirror", DOCKER_REGISTRY_MIRROR])
-            
-        pull_cmd.append(image_name)
-        
-        env = os.environ.copy()
-        # 添加代理环境变量
-        if DOCKER_HTTP_PROXY:
-            env["HTTP_PROXY"] = DOCKER_HTTP_PROXY
-            env["http_proxy"] = DOCKER_HTTP_PROXY
-        if DOCKER_HTTPS_PROXY:
-            env["HTTPS_PROXY"] = DOCKER_HTTPS_PROXY
-            env["https_proxy"] = DOCKER_HTTPS_PROXY
-            
-        process = run_docker_command(pull_cmd, stream_output=True)
-        
-        # 解析输出以获取进度信息
-        output_lines = []
-        while True:
-            line = process.stdout.readline()
-            if not line and process.poll() is not None:
-                break
-            if line:
-                output_lines.append(line.strip())
-                logger.info(f"Docker pull 输出: {line.strip()}")
-        
-        # 分析输出以确定进度
-        status = "unknown"
-        progress = 0
-        detail = ""
-        
-        for line in output_lines:
-            if "Pulling from" in line:
-                status = "starting"
-                detail = line
-            elif "Pulling fs layer" in line:
-                status = "downloading"
-                detail = line
-            elif "Downloading" in line:
-                status = "downloading"
-                # 尝试从输出中提取进度百分比
-                if "%" in line:
-                    try:
-                        progress_str = line.split("%")[0].split()[-1]
-                        progress = float(progress_str)
-                    except (ValueError, IndexError):
-                        pass
-                detail = line
-            elif "Verifying Checksum" in line:
-                status = "verifying"
-                detail = line
-            elif "Download complete" in line:
-                status = "complete"
-                progress = 100
-                detail = line
-            elif "Already exists" in line:
-                status = "complete"
-                progress = 100
-                detail = "镜像已存在"
-            elif "Error" in line or "error" in line:
-                status = "error"
-                detail = line
-        
-        return {
-            "status": status,
-            "progress": progress,
-            "detail": detail,
-            "output": output_lines
-        }
-            
-    except Exception as e:
-        logger.error(f"获取进度失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取进度失败: {str(e)}")
-
-@app.post("/api/pull-image")
-async def api_pull_image(request: ImageRequest):
-    logger.info(f"直接调用 /api/pull-image 端点，镜像: {request.image_name}")
-    try:
-        logger.info(f"开始拉取镜像: {request.image_name}")
-        
-        # 构建文件名，确保合法
-        safe_image_name = request.image_name.replace('/', '_').replace(':', '_')
-        file_path = os.path.join(DOWNLOADS_DIR, f"{safe_image_name}.tar")
-        logger.info(f"文件路径: {file_path}")
-        
-        # 如果文件已存在，直接返回
-        if os.path.exists(file_path):
-            logger.info(f"文件已存在，直接返回: {file_path}")
-            return FileResponse(
-                file_path,
-                media_type='application/octet-stream',
-                filename=f"{safe_image_name}.tar"
-            )
-        
-        # 拉取镜像
-        logger.info("正在拉取镜像...")
-        pull_cmd = ["docker", "pull"]
-        
-        # 如果配置了镜像仓库镜像，则添加相关参数
-        if DOCKER_REGISTRY_MIRROR:
-            logger.info(f"使用镜像仓库镜像: {DOCKER_REGISTRY_MIRROR}")
-            pull_cmd.extend(["--registry-mirror", DOCKER_REGISTRY_MIRROR])
-        
-        pull_cmd.append(request.image_name)
-        run_docker_command(pull_cmd)
-        
-        # 保存镜像为tar文件
-        logger.info("正在保存镜像...")
-        run_docker_command(["docker", "save", "-o", file_path, request.image_name])
-        
-        # 确保文件存在
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=500, detail=f"文件创建失败: {file_path}")
-            
-        # 检查文件大小
-        file_size = os.path.getsize(file_path)
-        if file_size == 0:
-            raise HTTPException(status_code=500, detail="保存的文件大小为0")
-            
-        logger.info(f"镜像保存完成，文件大小: {file_size} 字节")
-        
-        # 返回文件
-        return FileResponse(
-            file_path,
-            media_type='application/octet-stream',
-            filename=f"{safe_image_name}.tar"
-        )
-            
-    except Exception as e:
-        logger.error(f"服务器错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"服务器错误: {str(e)}")
-
-# 确保其他HTML路由也能正确返回前端页面（支持前端路由）
-@app.get("/{catch_all:path}")
-async def catch_all(catch_all: str):
-    # 如果是API路由，则跳过此处理器
-    if catch_all.startswith("api/"):
-        raise HTTPException(status_code=404, detail="API路径不存在")
-    
-    # 检查是否存在对应的静态文件
-    file_path = os.path.join(STATIC_DIR, catch_all)
-    if os.path.exists(file_path) and os.path.isfile(file_path):
-        logger.info(f"提供静态文件: {file_path}")
-        return FileResponse(file_path)
-    
-    # 否则返回index.html（让前端路由处理）
-    index_path = os.path.join(STATIC_DIR, "index.html")
-    if not os.path.exists(index_path):
-        logger.error(f"找不到index.html文件: {index_path}")
-        raise HTTPException(status_code=500, detail="前端静态文件未找到，请检查配置")
-    
-    logger.info(f"前端路由: {catch_all} -> index.html")
-    return FileResponse(index_path)
-
-# 创建API路由前缀
-api_router = FastAPI()
-
-@api_router.get("/downloaded-files")
-async def get_downloaded_files() -> List[DownloadedFile]:
-    try:
-        files = []
-        for filename in os.listdir(DOWNLOADS_DIR):
-            if filename.endswith('.tar'):
-                file_path = os.path.join(DOWNLOADS_DIR, filename)
-                stat = os.stat(file_path)
-                files.append(DownloadedFile(
-                    name=filename,
-                    size=stat.st_size,
-                    created_at=datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d %H:%M:%S'),
-                    path=file_path
-                ))
-        return sorted(files, key=lambda x: x.created_at, reverse=True)
-    except Exception as e:
-        logger.error(f"获取文件列表失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取文件列表失败: {str(e)}")
-
 @api_router.get("/download-file")
 async def download_file(path: str):
     try:
-        if not os.path.exists(path):
+        # 验证文件路径是否在下载目录内
+        abs_path = os.path.abspath(path)
+        if not abs_path.startswith(os.path.abspath(DOWNLOADS_DIR)):
+            raise HTTPException(status_code=400, detail="无效的文件路径")
+        
+        if not os.path.exists(abs_path):
             raise HTTPException(status_code=404, detail="文件不存在")
         
-        # 确保文件在downloads目录中
-        if not os.path.abspath(path).startswith(os.path.abspath(DOWNLOADS_DIR)):
-            raise HTTPException(status_code=403, detail="无权访问该文件")
-            
+        # 获取文件名
+        filename = os.path.basename(abs_path)
+        
+        # 使用流式响应返回文件
         return FileResponse(
-            path,
+            abs_path,
+            filename=filename,
             media_type='application/octet-stream',
-            filename=os.path.basename(path)
+            background=None  # 禁用后台任务，避免文件被过早关闭
         )
     except Exception as e:
         logger.error(f"下载文件失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"下载文件失败: {str(e)}")
 
-@api_router.post("/pull-image")
-async def pull_image(request: ImageRequest):
-    try:
-        logger.info(f"开始拉取镜像: {request.image_name}")
-        
-        # 构建文件名，确保合法
-        safe_image_name = request.image_name.replace('/', '_').replace(':', '_')
-        file_path = os.path.join(DOWNLOADS_DIR, f"{safe_image_name}.tar")
-        logger.info(f"文件路径: {file_path}")
-        
-        # 如果文件已存在，直接返回
-        if os.path.exists(file_path):
-            logger.info(f"文件已存在，直接返回: {file_path}")
-            return FileResponse(
-                file_path,
-                media_type='application/octet-stream',
-                filename=f"{safe_image_name}.tar"
-            )
-        
-        # 拉取镜像
-        logger.info("正在拉取镜像...")
-        pull_cmd = ["docker", "pull"]
-        
-        # 如果配置了镜像仓库镜像，则添加相关参数
-        if DOCKER_REGISTRY_MIRROR:
-            logger.info(f"使用镜像仓库镜像: {DOCKER_REGISTRY_MIRROR}")
-            pull_cmd.extend(["--registry-mirror", DOCKER_REGISTRY_MIRROR])
-        
-        pull_cmd.append(request.image_name)
-        run_docker_command(pull_cmd)
-        
-        # 保存镜像为tar文件
-        logger.info("正在保存镜像...")
-        run_docker_command(["docker", "save", "-o", file_path, request.image_name])
-        
-        # 确保文件存在
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=500, detail=f"文件创建失败: {file_path}")
-            
-        # 检查文件大小
-        file_size = os.path.getsize(file_path)
-        if file_size == 0:
-            raise HTTPException(status_code=500, detail="保存的文件大小为0")
-            
-        logger.info(f"镜像保存完成，文件大小: {file_size} 字节")
-        
-        # 返回文件
-        return FileResponse(
-            file_path,
-            media_type='application/octet-stream',
-            filename=f"{safe_image_name}.tar"
-        )
-            
-    except Exception as e:
-        logger.error(f"服务器错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"服务器错误: {str(e)}")
-
-@api_router.get("/pull-progress")
-async def get_pull_progress(image_name: str):
-    try:
-        # 获取镜像拉取进度
-        pull_cmd = ["docker", "pull"]
-        
-        # 如果配置了镜像仓库镜像，则添加相关参数
-        if DOCKER_REGISTRY_MIRROR:
-            pull_cmd.extend(["--registry-mirror", DOCKER_REGISTRY_MIRROR])
-            
-        pull_cmd.append(image_name)
-        
-        env = os.environ.copy()
-        # 添加代理环境变量
-        if DOCKER_HTTP_PROXY:
-            env["HTTP_PROXY"] = DOCKER_HTTP_PROXY
-            env["http_proxy"] = DOCKER_HTTP_PROXY
-        if DOCKER_HTTPS_PROXY:
-            env["HTTPS_PROXY"] = DOCKER_HTTPS_PROXY
-            env["https_proxy"] = DOCKER_HTTPS_PROXY
-            
-        process = run_docker_command(pull_cmd, stream_output=True)
-        
-        # 解析输出以获取进度信息
-        output_lines = []
-        while True:
-            line = process.stdout.readline()
-            if not line and process.poll() is not None:
-                break
-            if line:
-                output_lines.append(line.strip())
-                logger.info(f"Docker pull 输出: {line.strip()}")
-        
-        # 分析输出以确定进度
-        status = "unknown"
-        progress = 0
-        detail = ""
-        
-        for line in output_lines:
-            if "Pulling from" in line:
-                status = "starting"
-                detail = line
-            elif "Pulling fs layer" in line:
-                status = "downloading"
-                detail = line
-            elif "Downloading" in line:
-                status = "downloading"
-                # 尝试从输出中提取进度百分比
-                if "%" in line:
-                    try:
-                        progress_str = line.split("%")[0].split()[-1]
-                        progress = float(progress_str)
-                    except (ValueError, IndexError):
-                        pass
-                detail = line
-            elif "Verifying Checksum" in line:
-                status = "verifying"
-                detail = line
-            elif "Download complete" in line:
-                status = "complete"
-                progress = 100
-                detail = line
-            elif "Already exists" in line:
-                status = "complete"
-                progress = 100
-                detail = "镜像已存在"
-            elif "Error" in line or "error" in line:
-                status = "error"
-                detail = line
-        
-        return {
-            "status": status,
-            "progress": progress,
-            "detail": detail,
-            "output": output_lines
-        }
-            
-    except Exception as e:
-        logger.error(f"获取进度失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取进度失败: {str(e)}")
-
-@api_router.delete("/clear-downloads")
-async def clear_downloads():
-    try:
-        logger.info("开始清空下载目录")
-        for filename in os.listdir(DOWNLOADS_DIR):
-            if filename.endswith('.tar'):
-                file_path = os.path.join(DOWNLOADS_DIR, filename)
-                try:
-                    os.remove(file_path)
-                    logger.info(f"已删除文件: {filename}")
-                except Exception as e:
-                    logger.error(f"删除文件 {filename} 失败: {str(e)}")
-                    raise HTTPException(status_code=500, detail=f"删除文件失败: {str(e)}")
-        return {"message": "所有文件已清空"}
-    except Exception as e:
-        logger.error(f"清空下载目录失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"清空下载目录失败: {str(e)}")
-
-# 将API路由添加到主应用，带前缀
-app.mount("/api", api_router)
+# 将 api_router 挂载到主应用
+app.include_router(api_router)
 
 # 打印所有注册的路由，便于调试
 logger.info("已注册的API路由:")

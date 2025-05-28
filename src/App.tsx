@@ -87,24 +87,6 @@ function App() {
     }
   };
 
-  // 下载文件
-  const downloadFile = async (path: string, filename: string) => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/download-file?path=${encodeURIComponent(path)}`, {
-        responseType: 'blob'
-      });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      console.error('下载文件失败:', error);
-    }
-  };
-
   // 处理表单提交
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,37 +97,67 @@ function App() {
     setOutput([]);
     setShowOutput(false);
 
-    try {
-      // 开始轮询进度
-      const progressInterval = setInterval(checkProgress, 1000);
+    let progressInterval: NodeJS.Timeout | null = null;
 
-      const response = await axios.post(`${API_BASE_URL}/pull-image`, {
+    try {
+      // 先启动下载进程
+      await axios.post(`${API_BASE_URL}/pull-image`, {
         image_name: imageName
-      }, {
-        responseType: 'blob'
       });
 
-      // 清除进度轮询
-      clearInterval(progressInterval);
+      // 开始轮询进度
+      progressInterval = setInterval(async () => {
+        try {
+          const response = await axios.get(`${API_BASE_URL}/pull-progress?image_name=${imageName}`);
+          const { status, progress, detail, output } = response.data;
+          setStatus(status);
+          setProgress(progress);
+          setDetail(detail);
+          setOutput(output);
+          
+          // 如果状态是 complete 或 error，停止轮询
+          if (status === 'complete' || status === 'error') {
+            if (progressInterval) {
+              clearInterval(progressInterval);
+              progressInterval = null;
+            }
+            if (status === 'complete') {
+              setLoading(false);
+              // 下载完成后刷新文件列表
+              fetchDownloadedFiles();
+            } else {
+              setLoading(false);
+            }
+          }
+        } catch (error) {
+          console.error('获取进度失败:', error);
+          if (progressInterval) {
+            clearInterval(progressInterval);
+            progressInterval = null;
+          }
+          setStatus('error');
+          setLoading(false);
+        }
+      }, 1000);
 
-      // 创建下载链接
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${imageName.replace('/', '_')}.tar`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-
-      setStatus('complete');
-      setProgress(100);
-      // 刷新文件列表
-      fetchDownloadedFiles();
     } catch (error) {
       console.error('下载失败:', error);
       setStatus('error');
-    } finally {
       setLoading(false);
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
+    }
+  };
+
+  // 下载文件
+  const downloadFile = async (path: string, filename: string) => {
+    try {
+      // 使用 window.open 在新标签页中下载，避免阻塞主页面
+      window.open(`${API_BASE_URL}/download-file?path=${encodeURIComponent(path)}`, '_blank');
+    } catch (error) {
+      console.error('下载文件失败:', error);
+      alert('下载文件失败，请重试');
     }
   };
 
