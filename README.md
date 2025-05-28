@@ -63,7 +63,7 @@
 
 1. 构建 Docker 镜像
    ```bash
-   docker build -t docker-pull .
+   docker build -t connermo/docker-pull .
    ```
 
 2. 运行容器
@@ -77,7 +77,7 @@
      -p 8000:8000 \
      -v /var/run/docker.sock:/var/run/docker.sock \
      -v $(pwd)/downloads:/app/backend/downloads \
-     docker-pull
+     connermo/docker-pull
    ```
 
    带网络配置的示例：
@@ -95,7 +95,7 @@
      -e DOCKER_HTTP_PROXY=http://proxy.example.com:8080 \
      -e DOCKER_HTTPS_PROXY=http://proxy.example.com:8080 \
      -e REACT_APP_AUTH_PASSWORD=your_custom_password \
-     docker-pull
+     connermo/docker-pull
    ```
 
    使用 docker-compose 运行（推荐）：
@@ -105,6 +105,20 @@
 
    # 启动服务
    docker-compose up -d
+   ```
+
+   或者直接使用远程镜像：
+   ```bash
+   # 创建下载目录
+   mkdir -p ./downloads
+
+   # 运行容器
+   docker run -d \
+     --name docker-pull \
+     -p 8000:8000 \
+     -v /var/run/docker.sock:/var/run/docker.sock \
+     -v $(pwd)/downloads:/app/backend/downloads \
+     connermo/docker-pull:latest
    ```
 
 3. 访问应用程序
