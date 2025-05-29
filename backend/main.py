@@ -30,8 +30,42 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 创建 Docker 客户端
-docker_client = docker.from_env()
+# Docker客户端延迟初始化
+docker_client = None
+
+def get_docker_client():
+    """获取Docker客户端实例，延迟初始化"""
+    global docker_client
+    if docker_client is None:
+        try:
+            # 备份当前环境变量
+            original_env = os.environ.copy()
+            
+            # 临时清理可能影响Docker客户端连接的环境变量
+            temp_vars_to_clear = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'DOCKER_HOST']
+            for var in temp_vars_to_clear:
+                if var in os.environ:
+                    del os.environ[var]
+            
+            try:
+                # 尝试连接到Docker daemon
+                docker_client = docker.from_env()
+                logger.info("Docker客户端初始化成功")
+            finally:
+                # 恢复环境变量
+                os.environ.clear()
+                os.environ.update(original_env)
+                
+        except Exception as e:
+            logger.error(f"Docker客户端初始化失败: {e}")
+            # 尝试手动指定socket路径
+            try:
+                docker_client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
+                logger.info("使用unix socket初始化Docker客户端成功")
+            except Exception as e2:
+                logger.error(f"使用unix socket初始化Docker客户端也失败: {e2}")
+                raise e2
+    return docker_client
 
 # 模型定义
 class ImageRequest(BaseModel):
@@ -51,8 +85,9 @@ API_PORT = int(os.getenv("API_PORT", "8000"))
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
 DOWNLOADS_DIR_ENV = os.getenv("DOWNLOADS_DIR")
 DOCKER_REGISTRY_MIRROR = os.getenv("DOCKER_REGISTRY_MIRROR")
-DOCKER_HTTP_PROXY = os.getenv("DOCKER_HTTP_PROXY")
-DOCKER_HTTPS_PROXY = os.getenv("DOCKER_HTTPS_PROXY")
+
+# 新的代理配置
+DOCKER_PROXY = os.getenv("DOCKER_PROXY")
 
 # 压缩方法配置 - 只使用 pigz 高速并行压缩
 COMPRESSION_METHOD = {
@@ -83,12 +118,11 @@ def run_docker_command(command, stream_output=False):
         env = os.environ.copy()
         
         # 添加代理环境变量
-        if DOCKER_HTTP_PROXY:
-            env["HTTP_PROXY"] = DOCKER_HTTP_PROXY
-            env["http_proxy"] = DOCKER_HTTP_PROXY
-        if DOCKER_HTTPS_PROXY:
-            env["HTTPS_PROXY"] = DOCKER_HTTPS_PROXY
-            env["https_proxy"] = DOCKER_HTTPS_PROXY
+        if DOCKER_PROXY:
+            env["HTTP_PROXY"] = DOCKER_PROXY
+            env["http_proxy"] = DOCKER_PROXY
+            env["HTTPS_PROXY"] = DOCKER_PROXY
+            env["https_proxy"] = DOCKER_PROXY
         
         if stream_output:
             process = subprocess.Popen(
@@ -217,7 +251,7 @@ async def pull_image_with_progress(image_name: str):
         
         # 获取镜像信息
         try:
-            image = docker_client.images.get(image_name)
+            image = get_docker_client().images.get(image_name)
             download_progress[image_name]["detail"] = "镜像已存在本地"
             download_progress[image_name]["status"] = "downloading"
             download_progress[image_name]["progress"] = 30
@@ -242,7 +276,7 @@ async def pull_image_with_progress(image_name: str):
             
             add_log("连接到Docker仓库，开始拉取镜像层...")
             
-            for line in docker_client.api.pull(image_name, stream=True, decode=True):
+            for line in get_docker_client().api.pull(image_name, stream=True, decode=True):
                 if 'id' in line and 'status' in line:
                     layer_id = line['id']
                     status = line['status']
@@ -333,7 +367,7 @@ async def pull_image_with_progress(image_name: str):
                 # 使用临时文件避免磁盘空间问题
                 with tempfile.NamedTemporaryFile() as temp_tar:
                     # 先保存为tar到临时文件
-                    for chunk in docker_client.images.get(image_name).save():
+                    for chunk in get_docker_client().images.get(image_name).save():
                         temp_tar.write(chunk)
                     temp_tar.flush()
                     temp_tar.seek(0)

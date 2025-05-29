@@ -90,7 +90,7 @@ ENV API_PORT=8000
 # Create simple startup script
 RUN echo '#!/bin/bash\n\
 # 从 DOCKER_PROXY 自动生成所有代理环境变量\n\
-if [ -n "$DOCKER_PROXY" ]; then\n\
+if [ -n "$DOCKER_PROXY" ] && [ "$DOCKER_PROXY" != "" ]; then\n\
     echo "配置代理: $DOCKER_PROXY"\n\
     export HTTP_PROXY="$DOCKER_PROXY"\n\
     export HTTPS_PROXY="$DOCKER_PROXY"\n\
@@ -98,14 +98,31 @@ if [ -n "$DOCKER_PROXY" ]; then\n\
     export https_proxy="$DOCKER_PROXY"\n\
     export NO_PROXY="localhost,127.0.0.1,::1,*.local,*.internal"\n\
     export no_proxy="localhost,127.0.0.1,::1,*.local,*.internal"\n\
-    echo "代理环境变量已设置"\n\
+    echo "代理环境变量已设置:"\n\
+    echo "  HTTP_PROXY=$HTTP_PROXY"\n\
+    echo "  HTTPS_PROXY=$HTTPS_PROXY"\n\
+    echo "  NO_PROXY=$NO_PROXY"\n\
 else\n\
     echo "未设置代理，使用直连"\n\
+    # 确保没有代理相关的环境变量\n\
+    unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy\n\
 fi\n\
 \n\
-# 启动服务\n\
+# 启动nginx服务\n\
+echo "启动nginx服务..."\n\
 service nginx start\n\
-python main.py' > /app/start.sh && \
+\n\
+# 检查Docker socket连接\n\
+echo "检查Docker socket连接..."\n\
+if [ -S /var/run/docker.sock ]; then\n\
+    echo "Docker socket已挂载: /var/run/docker.sock"\n\
+else\n\
+    echo "警告: Docker socket未找到"\n\
+fi\n\
+\n\
+# 启动Python应用，确保环境变量传递\n\
+echo "启动Python应用..."\n\
+exec python main.py' > /app/start.sh && \
     chmod +x /app/start.sh
 
 # Start both nginx and backend
