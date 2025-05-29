@@ -1,23 +1,18 @@
-version: '3'
-
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: connermo/docker-pull:latest
     ports:
       - "8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./downloads:/app/backend/downloads
     environment:
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-      - DOCKER_REGISTRY_MIRROR=""
-      - DOCKER_HTTP_PROXY=""
-      - DOCKER_HTTPS_PROXY=""
+      # 代理配置（一个变量搞定所有代理设置）
+      - DOCKER_PROXY=${DOCKER_PROXY:-}
+      - DOCKER_REGISTRY_MIRROR=${DOCKER_REGISTRY_MIRROR:-}
+      
     restart: unless-stopped
 
 networks:
-  app-network:
+  default:
     driver: bridge 

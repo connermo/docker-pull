@@ -1,6 +1,22 @@
 # Build frontend
 FROM node:18-alpine as frontend-builder
 
+# 设置构建时代理参数
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+# 应用代理设置到环境变量
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+ENV http_proxy=${http_proxy}
+ENV https_proxy=${https_proxy}
+ENV no_proxy=${no_proxy}
+
 WORKDIR /app
 
 # Copy package files
@@ -18,9 +34,25 @@ RUN npm run build
 # Final stage
 FROM python:3.11-slim
 
+# 设置构建时代理参数
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+# 应用代理设置到环境变量
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+ENV http_proxy=${http_proxy}
+ENV https_proxy=${https_proxy}
+ENV no_proxy=${no_proxy}
+
 WORKDIR /app
 
-# Install system dependencies including pigz for high-speed compression
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     docker.io \
     nginx \
@@ -54,12 +86,26 @@ EXPOSE 8000
 # Set environment variables
 ENV API_HOST=0.0.0.0
 ENV API_PORT=8000
-ENV DOCKER_REGISTRY_MIRROR=""
-ENV DOCKER_HTTP_PROXY=""
-ENV DOCKER_HTTPS_PROXY=""
 
-# Create startup script
-RUN echo '#!/bin/bash\nservice nginx start\npython main.py' > /app/start.sh && \
+# Create simple startup script
+RUN echo '#!/bin/bash\n\
+# 从 DOCKER_PROXY 自动生成所有代理环境变量\n\
+if [ -n "$DOCKER_PROXY" ]; then\n\
+    echo "配置代理: $DOCKER_PROXY"\n\
+    export HTTP_PROXY="$DOCKER_PROXY"\n\
+    export HTTPS_PROXY="$DOCKER_PROXY"\n\
+    export http_proxy="$DOCKER_PROXY"\n\
+    export https_proxy="$DOCKER_PROXY"\n\
+    export NO_PROXY="localhost,127.0.0.1,::1,*.local,*.internal"\n\
+    export no_proxy="localhost,127.0.0.1,::1,*.local,*.internal"\n\
+    echo "代理环境变量已设置"\n\
+else\n\
+    echo "未设置代理，使用直连"\n\
+fi\n\
+\n\
+# 启动服务\n\
+service nginx start\n\
+python main.py' > /app/start.sh && \
     chmod +x /app/start.sh
 
 # Start both nginx and backend
