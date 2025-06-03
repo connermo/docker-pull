@@ -89,13 +89,17 @@ DOCKER_REGISTRY_MIRROR = os.getenv("DOCKER_REGISTRY_MIRROR")
 # 新的代理配置
 DOCKER_PROXY = os.getenv("DOCKER_PROXY")
 
-# 压缩方法配置 - 只使用 pigz 高速并行压缩
+# 压缩方法配置
 COMPRESSION_METHOD = {
     "name": "pigz",
     "ext": ".tar.gz", 
-    "command": ["pigz", "--fast", "-c"],
+    "command": ["pigz", "--fast", "-p", "4", "-c"],  # 限制使用4个CPU核心
     "decompress": ["pigz", "-d", "-c"]
 }
+
+# 从环境变量获取压缩超时设置（默认2小时）
+COMPRESSION_TIMEOUT = int(os.getenv("COMPRESSION_TIMEOUT", "7200"))
+DOCKER_SAVE_TIMEOUT = int(os.getenv("DOCKER_SAVE_TIMEOUT", "3600"))
 
 def check_pigz_support():
     """检查 pigz 是否可用"""
@@ -365,23 +369,51 @@ async def pull_image_with_progress(image_name: str):
             """保存镜像到压缩文件"""
             try:
                 # 使用临时文件避免磁盘空间问题
-                with tempfile.NamedTemporaryFile() as temp_tar:
-                    # 先保存为tar到临时文件
-                    for chunk in get_docker_client().images.get(image_name).save():
-                        temp_tar.write(chunk)
-                    temp_tar.flush()
-                    temp_tar.seek(0)
-                    
-                    # 根据压缩方法进行压缩
-                    if method_name == "pigz":
-                        compress_with_pigz(temp_tar, save_path)
-                    else:
-                        # 使用 Python 内置 gzip (降级方案)
-                        with gzip.open(save_path, 'wb') as gz_file:
-                            shutil.copyfileobj(temp_tar, gz_file)
+                with tempfile.NamedTemporaryFile(delete=False) as temp_tar:
+                    temp_tar_path = temp_tar.name
+                    try:
+                        # 先保存为tar到临时文件，带超时控制
+                        start_time = time.time()
+                        for chunk in get_docker_client().images.get(image_name).save():
+                            # 检查Docker保存操作是否超时
+                            if time.time() - start_time > DOCKER_SAVE_TIMEOUT:
+                                raise TimeoutError(f"Docker保存操作超时（{DOCKER_SAVE_TIMEOUT}秒）")
+                            temp_tar.write(chunk)
+                        temp_tar.flush()
+                        temp_tar.close()
+                        
+                        # 根据压缩方法进行压缩
+                        if method_name == "pigz":
+                            # 创建一个进度更新函数，接收当前的download_progress字典
+                            def make_progress_updater(progress_dict):
+                                def update_compression_progress(progress):
+                                    progress_dict[image_name]["progress"] = 80 + int(progress * 0.15)  # 80-95%
+                                    progress_dict[image_name]["detail"] = f"压缩进度: {progress}%"
+                                return update_compression_progress
+                            
+                            compress_with_pigz(
+                                open(temp_tar_path, 'rb'),
+                                save_path,
+                                progress_callback=make_progress_updater(download_progress)
+                            )
+                        else:
+                            # 使用 Python 内置 gzip (降级方案)
+                            with gzip.open(save_path, 'wb') as gz_file:
+                                shutil.copyfileobj(open(temp_tar_path, 'rb'), gz_file)
+                    finally:
+                        # 清理临时文件
+                        try:
+                            os.unlink(temp_tar_path)
+                        except:
+                            pass
                         
             except Exception as e:
-                raise Exception(f"保存镜像失败: {str(e)}")
+                if isinstance(e, TimeoutError):
+                    raise Exception(f"操作超时: {str(e)}")
+                elif isinstance(e, subprocess.CalledProcessError):
+                    raise Exception(f"压缩失败: {str(e)}")
+                else:
+                    raise Exception(f"保存镜像失败: {str(e)}")
         
         # 使用线程池执行保存操作
         with ThreadPoolExecutor() as executor:
@@ -569,28 +601,122 @@ def get_compression_method():
         # 如果 pigz 不可用，使用 Python 内置 gzip
         return "gzip", {"name": "gzip", "ext": ".tar.gz", "command": None}
 
-def compress_with_pigz(input_stream, output_path):
-    """使用 pigz 进行高速并行压缩"""
+def compress_with_pigz(input_stream, output_path, progress_callback=None):
+    """使用 pigz 进行高速并行压缩，带超时控制和进度反馈
+    
+    Args:
+        input_stream: 输入流
+        output_path: 输出文件路径
+        progress_callback: 可选的进度回调函数，接收压缩进度（0-100）
+    """
     if not PIGZ_AVAILABLE:
         # 使用 Python 内置 gzip
         with gzip.open(output_path, 'wb') as gz_file:
             shutil.copyfileobj(input_stream, gz_file)
         return
     
-    # 使用 pigz 进行并行压缩
-    cmd = ["pigz", "--fast", "-c"]
-    with open(output_path, 'wb') as outfile:
-        process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=outfile, stderr=subprocess.PIPE)
-        try:
-            shutil.copyfileobj(input_stream, process.stdin)
+    # 获取输入流大小用于进度计算
+    input_size = 0
+    if hasattr(input_stream, 'seek') and hasattr(input_stream, 'tell'):
+        current_pos = input_stream.tell()
+        input_stream.seek(0, 2)  # 移动到文件末尾
+        input_size = input_stream.tell()
+        input_stream.seek(current_pos)  # 恢复位置
+    
+    # 使用 pigz 进行并行压缩，限制CPU核心数
+    cmd = ["pigz", "--fast", "-p", "4", "-c"]
+    temp_output = output_path + ".tmp"
+    
+    try:
+        with open(temp_output, 'wb') as outfile:
+            process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=outfile,
+                stderr=subprocess.PIPE,
+                bufsize=1024*1024  # 1MB缓冲区
+            )
+            
+            # 启动进度监控线程
+            if input_size > 0 and progress_callback:
+                def monitor_progress():
+                    while process.poll() is None:
+                        try:
+                            if hasattr(input_stream, 'tell'):
+                                current_pos = input_stream.tell()
+                                progress = min(100, int((current_pos / input_size) * 100))
+                                progress_callback(progress)
+                            time.sleep(1)  # 每秒更新一次进度
+                        except Exception:
+                            pass
+                
+                import threading
+                progress_thread = threading.Thread(target=monitor_progress, daemon=True)
+                progress_thread.start()
+            
+            # 使用超时控制复制数据
+            start_time = time.time()
+            bytes_copied = 0
+            chunk_size = 1024 * 1024  # 1MB chunks
+            
+            while True:
+                # 检查是否超时
+                if time.time() - start_time > COMPRESSION_TIMEOUT:
+                    process.kill()
+                    raise TimeoutError(f"压缩操作超时（{COMPRESSION_TIMEOUT}秒）")
+                
+                # 读取并写入数据
+                chunk = input_stream.read(chunk_size)
+                if not chunk:
+                    break
+                
+                try:
+                    process.stdin.write(chunk)
+                    bytes_copied += len(chunk)
+                    
+                    # 检查进程是否还活着
+                    if process.poll() is not None:
+                        stderr = process.stderr.read().decode()
+                        raise subprocess.CalledProcessError(
+                            process.returncode,
+                            cmd,
+                            f"压缩进程意外退出: {stderr}"
+                        )
+                except BrokenPipeError:
+                    stderr = process.stderr.read().decode()
+                    raise subprocess.CalledProcessError(
+                        process.returncode,
+                        cmd,
+                        f"压缩进程管道断开: {stderr}"
+                    )
+            
+            # 关闭输入流并等待进程完成
             process.stdin.close()
-            process.wait()
+            try:
+                process.wait(timeout=30)  # 给进程30秒完成压缩
+            except subprocess.TimeoutExpired:
+                process.kill()
+                raise TimeoutError("压缩进程未能在30秒内完成")
+            
             if process.returncode != 0:
-                stderr_output = process.stderr.read().decode()
-                raise subprocess.CalledProcessError(process.returncode, cmd, stderr_output)
-        except Exception as e:
-            process.kill()
-            raise e
+                stderr = process.stderr.read().decode()
+                raise subprocess.CalledProcessError(
+                    process.returncode,
+                    cmd,
+                    f"压缩失败: {stderr}"
+                )
+        
+        # 压缩成功，重命名临时文件
+        os.rename(temp_output, output_path)
+        
+    except Exception as e:
+        # 清理临时文件
+        if os.path.exists(temp_output):
+            try:
+                os.unlink(temp_output)
+            except:
+                pass
+        raise e
 
 if __name__ == "__main__":
     # 使用环境变量中的主机和端口
