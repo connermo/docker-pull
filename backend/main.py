@@ -93,7 +93,7 @@ DOCKER_PROXY = os.getenv("DOCKER_PROXY")
 COMPRESSION_METHOD = {
     "name": "pigz",
     "ext": ".tar.gz", 
-    "command": ["pigz", "--fast", "-p", "4", "-c"],  # 限制使用4个CPU核心
+    "command": ["pigz", "--fast", "-c"],  # 让pigz自动使用所有可用CPU核心
     "decompress": ["pigz", "-d", "-c"]
 }
 
