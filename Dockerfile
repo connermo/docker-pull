@@ -57,11 +57,19 @@ RUN apt-get update && apt-get install -y \
     docker.io \
     nginx \
     pigz \
+    build-essential \
+    gcc \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip and install wheel
+RUN python -m pip install --upgrade pip setuptools wheel
 
 # Copy backend files
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Python dependencies with better error handling and retry
+RUN pip install --no-cache-dir --default-timeout=100 --retries=3 -r requirements.txt
 
 # Create necessary directories
 RUN mkdir -p /app/backend/downloads

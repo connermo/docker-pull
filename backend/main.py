@@ -48,9 +48,9 @@ def get_docker_client():
                     del os.environ[var]
             
             try:
-                # 尝试连接到Docker daemon
-                docker_client = docker.from_env()
-                logger.info("Docker客户端初始化成功")
+                # 尝试连接到Docker daemon，设置超时时间
+                docker_client = docker.from_env(timeout=DOCKER_SDK_TIMEOUT)
+                logger.info(f"Docker客户端初始化成功，超时设置: {DOCKER_SDK_TIMEOUT}秒")
             finally:
                 # 恢复环境变量
                 os.environ.clear()
@@ -60,8 +60,8 @@ def get_docker_client():
             logger.error(f"Docker客户端初始化失败: {e}")
             # 尝试手动指定socket路径
             try:
-                docker_client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
-                logger.info("使用unix socket初始化Docker客户端成功")
+                docker_client = docker.DockerClient(base_url='unix:///var/run/docker.sock', timeout=DOCKER_SDK_TIMEOUT)
+                logger.info(f"使用unix socket初始化Docker客户端成功，超时设置: {DOCKER_SDK_TIMEOUT}秒")
             except Exception as e2:
                 logger.error(f"使用unix socket初始化Docker客户端也失败: {e2}")
                 raise e2
@@ -100,6 +100,8 @@ COMPRESSION_METHOD = {
 # 从环境变量获取压缩超时设置（默认2小时）
 COMPRESSION_TIMEOUT = int(os.getenv("COMPRESSION_TIMEOUT", "7200"))
 DOCKER_SAVE_TIMEOUT = int(os.getenv("DOCKER_SAVE_TIMEOUT", "3600"))
+# Docker SDK 超时设置（默认2小时）
+DOCKER_SDK_TIMEOUT = int(os.getenv("DOCKER_SDK_TIMEOUT", "7200"))
 
 def check_pigz_support():
     """检查 pigz 是否可用"""
